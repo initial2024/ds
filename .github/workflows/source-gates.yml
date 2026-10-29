@@ -1,0 +1,81 @@
+name: DSH v139 source and Android toolchain gates
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: dsh-source-gates-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  public-tree:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Checkout public staging repo
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Scan committed files for forbidden assets and key markers
+        run: python3 scripts/public_tree_gate.py
+      - name: Gate summary
+        if: always()
+        run: |
+          echo "This is NOT a signed APK build." >> "$GITHUB_STEP_SUMMARY"
+          echo "Native host / diagnostic egress / ART / phone: NOT_VERIFIED" >> "$GITHUB_STEP_SUMMARY"
+      - name: Save non-sensitive gate report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: dsh-source-gate-report
+          path: out/gate-report.json
+          if-no-files-found: warn
+          retention-days: 7
+
+  android-toolchain-smoke:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    needs: public-tree
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+      - name: Install official Android SDK build tools
+        shell: bash
+        run: |
+          set -euo pipefail
+          command -v sdkmanager
+          yes | sdkmanager --licenses > /dev/null || true
+          sdkmanager "build-tools;35.0.0" "platforms;android-35"
+      - name: Compile synthetic Java and run Android D8
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p out/classes out/dex
+          javac --release 8 -d out/classes ci/Smoke.java
+          jar cf out/smoke.jar -C out/classes .
+          SDK="${ANDROID_HOME:-${ANDROID_SDK_ROOT:-}}"
+          test -n "$SDK"
+          D8="$SDK/build-tools/35.0.0/d8"
+          test -x "$D8"
+          "$D8" --min-api 26 --output out/dex out/smoke.jar
+          test -s out/dex/classes.dex
+          sha256sum out/dex/classes.dex > out/dex.sha256
+          printf 'ANDROID_JAVA_D8_SMOKE=PASS\nDSH_APK_BUILT=NO\nART_VERIFIED=NOT_VERIFIED\n' > out/status.txt
+      - name: Upload synthetic D8 probe only
+        uses: actions/upload-artifact@v4
+        with:
+          name: dsh-android-toolchain-smoke
+          path: |
+            out/dex.sha256
+            out/status.txt
+          retention-days: 7
