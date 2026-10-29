@@ -20,7 +20,7 @@ for p in paths:
         violations.append(f"missing:{p}")
         continue
     raw = (ROOT/p).read_bytes()
-    if b"-----BEGIN PRIVATE KEY-----" in raw or b"-----BEGIN ENCRYPTED PRIVATE KEY-----" in raw:
+    if (b"-----BEGIN" + b" PRIVATE KEY-----") in raw or (b"-----BEGIN" + b" ENCRYPTED PRIVATE KEY-----") in raw:
         violations.append(f"private-key-marker:{p}")
     if re.search(rb"ghp_[a-zA-Z0-9]{20}|github_pat_[a-zA-Z0-9_]{20}|AKIA[0-9A-Z]{16}",raw):
         violations.append(f"token-pattern:{p}")
