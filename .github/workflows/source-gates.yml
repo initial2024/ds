@@ -49,6 +49,8 @@ jobs:
         with:
           distribution: temurin
           java-version: '17'
+      - name: Provision Android SDK command-line tools
+        uses: android-actions/setup-android@v3
       - name: Install official Android SDK build tools
         shell: bash
         run: |
