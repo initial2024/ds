@@ -49,15 +49,25 @@ jobs:
         with:
           distribution: temurin
           java-version: '17'
-      - name: Provision Android SDK command-line tools
-        uses: android-actions/setup-android@v3
-      - name: Install official Android SDK build tools
+      - name: Locate available Android SDK manager and install build-tools
         shell: bash
         run: |
           set -euo pipefail
-          command -v sdkmanager
-          yes | sdkmanager --licenses > /dev/null || true
-          sdkmanager "build-tools;35.0.0" "platforms;android-35"
+          SDK="$(printenv ANDROID_HOME || printenv ANDROID_SDK_ROOT || echo /usr/local/lib/android/sdk)"
+          echo "ANDROID_HOME=$SDK" >> "$GITHUB_ENV"
+          echo "ANDROID_SDK_ROOT=$SDK" >> "$GITHUB_ENV"
+          if test -x "$SDK/build-tools/35.0.0/d8"; then
+            echo "Android build-tools 35 already present"
+            exit 0
+          fi
+          SDKMANAGER="$(command -v sdkmanager || true)"
+          if test -z "$SDKMANAGER"; then
+            SDKMANAGER="$(find "$SDK/cmdline-tools" -type f -name sdkmanager -perm /111 2>/dev/null | head -n1 || true)"
+          fi
+          if test -z "$SDKMANAGER"; then echo "::error::Android SDK manager missing"; exit 1; fi
+          (yes | "$SDKMANAGER" --sdk_root="$SDK" --licenses >/dev/null) || true
+          "$SDKMANAGER" --sdk_root="$SDK" "build-tools;35.0.0"
+          test -x "$SDK/build-tools/35.0.0/d8"
       - name: Compile synthetic Java and run Android D8
         shell: bash
         run: |
